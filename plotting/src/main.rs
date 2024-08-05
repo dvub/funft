@@ -21,7 +21,7 @@ fn main() {
     let mut noise = gen_noise();
     // save an unprocessed copy
     let mut pre_noise = noise.clone();
-    let v = shared(1.0);
+    let v = shared(1.5);
     let mut synth = resynth::<U2, U2, _>(window_length, |fft| {
         process(fft, &frequencies, &v);
     });
