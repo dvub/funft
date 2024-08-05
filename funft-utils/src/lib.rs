@@ -1,30 +1,56 @@
+use std::thread::current;
+
 // TODO:
 // rewrite ALL OF this dogshit code
 // BECAUSE JESUS FUCK!
 use fundsp::hacker::*;
 
-pub fn process(fft: &mut FftWindow, frequencies: &Vec<f32>) {
+pub fn process(fft: &mut FftWindow, frequencies: &Vec<f32>, v: &Shared) {
     for channel in 0..=1 {
         for i in 0..fft.bins() {
             let current_frequency = fft.frequency(i);
 
             // TODO:
             // fix this unwrap_or
-            if let Some((l, r)) = find_surrounding_frequencies(&frequencies, current_frequency) {
-                let midpoint = (l  + r) / 2.0;
+            if let Some((l, r)) = find_surrounding_frequencies(frequencies, current_frequency) {
+                let midpoint = (l + r) / 2.0;
                 let normalization = (midpoint - l).abs();
                 let diff = (current_frequency - midpoint).abs();
 
-                let amp = (diff / normalization).powi(2);
+                let amp = (diff / normalization).powf(v.value());
 
                 let value = fft.at(channel, i);
                 let adjusted_value = value * amp;
 
-                let _difference = (value.norm() - adjusted_value.norm()).abs();
+                let difference = (value.norm() - adjusted_value.norm()).abs();
+
                 // subtract
                 fft.set(channel, i, fft.at(channel, i) * amp);
                 // add
+                /*
+                let nearest_target =
+                    if (l - current_frequency).abs() < (r - current_frequency).abs() {
+                        l
+                    } else {
+                        r
+                    };
 
+                let mut min_diff_index = 0;
+                let mut min_diff = f32::MAX;
+                for j in 0..fft.bins() {
+                    let new_diff = (fft.frequency(j) - nearest_target).abs();
+                    if new_diff < min_diff {
+                        min_diff = new_diff;
+                        min_diff_index = j;
+                    }
+                }
+
+                fft.set(
+                    channel,
+                    min_diff_index,
+                    fft.at(channel, min_diff_index) + difference,
+                )
+                */
                 // add difference to closest target bin
             }
         }
@@ -44,7 +70,7 @@ pub fn generate_frequencies() -> Vec<f32> {
     let max_frequency = 44100.0; // Maximum frequency
 
     // C Major scale intervals (C, D, E, F, G, A, B, )
-    let scale_intervals = vec![0, 2, 3, 5, 7, 10];
+    let scale_intervals = vec![0, 2, 3, 5, 7, 8, 10];
 
     let mut freqs = Vec::new();
     let mut octave = 0;
@@ -113,6 +139,9 @@ mod tests {
     fn test_adjacent() {
         let v = 2.0;
         let vec = vec![0.5, 1.0, 3.0, 5.0];
-        assert_eq!(super::find_surrounding_frequencies(&vec, v).unwrap(), (1.0, 3.0));
+        assert_eq!(
+            super::find_surrounding_frequencies(&vec, v).unwrap(),
+            (1.0, 3.0)
+        );
     }
 }

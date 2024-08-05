@@ -1,4 +1,3 @@
-
 use fundsp::hacker::*;
 use funft_utils::{generate_frequencies, process};
 use nih_plug::prelude::*;
@@ -8,9 +7,27 @@ use typenum::{UInt, UTerm};
 
 #[derive(Params)]
 
-struct GainParams {}
+struct GainParams {
+    #[id = "depth"]
+    depth: FloatParam,
+}
+impl GainParams {
+    pub fn new() -> Self {
+        GainParams {
+            depth: FloatParam::new(
+                "Depth",
+                1.0,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 10.0,
+                },
+            ),
+        }
+    }
+}
 
 struct Gain {
+    depth: Shared,
     graph: Box<dyn AudioUnit>,
     input_buffer: BufferArray<UInt<UInt<UTerm, typenum::B1>, typenum::B0>>,
     output_buffer: BufferArray<UInt<UInt<UTerm, typenum::B1>, typenum::B0>>,
@@ -30,15 +47,18 @@ impl Default for Gain {
         let window_length = 512;
         let frequencies = generate_frequencies();
 
+        let depth = shared(1.0);
+        let c = depth.clone();
         let synth = resynth::<U2, U2, _>(window_length, move |fft| {
-            process(fft, &frequencies);
+            process(fft, &frequencies, &c);
         });
 
         let graph = synth;
 
         Self {
+            depth,
             graph: Box::new(graph),
-            params: Arc::new(GainParams {}),
+            params: Arc::new(GainParams::new()),
 
             input_buffer: BufferArray::<U2>::new(),
             output_buffer: BufferArray::<U2>::new(),
@@ -120,6 +140,7 @@ impl Plugin for Gain {
                         .set_f32(channel_index, sample_index, sample);
                 }
             }
+            self.depth.set(self.params.depth.value());
 
             self.graph.process(
                 block.samples(),

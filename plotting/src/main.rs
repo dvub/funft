@@ -14,7 +14,6 @@ use std::{
 };
 const OUT_DIR: &str = "./output";
 
-
 fn main() {
     let window_length = 512;
     let frequencies = generate_frequencies();
@@ -22,8 +21,9 @@ fn main() {
     let mut noise = gen_noise();
     // save an unprocessed copy
     let mut pre_noise = noise.clone();
+    let v = shared(1.0);
     let mut synth = resynth::<U2, U2, _>(window_length, |fft| {
-        process(fft, &frequencies);
+        process(fft, &frequencies, &v);
     });
     for sample in &mut noise {
         let samples_into_array = &NumericArray::new(arr![*sample; 2]);
