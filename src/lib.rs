@@ -228,8 +228,40 @@ mod tests {
         assert_eq!(freq_to_midi(440.0), 69.0);
     }
     #[test]
-    fn test_g() {
+    fn test_generate_frequencies() {
         use crate::generate_frequencies;
         println!("{:?}", generate_frequencies());
     }
+    fn test_adjacent() {
+        // TODO!
+    }
+}
+
+fn find_adjacent_indices(v: &[f32], value: f32) -> Option<(usize, usize)> {
+    // Ensure the vector is sorted and not empty
+    /*if v.is_empty() || value < v[0] || value > v[v.len() - 1] {
+        return None;
+    }*/
+
+    // Binary search to find the index where value would be inserted
+    let mut low = 0;
+    let mut high = v.len();
+
+    while low < high {
+        let mid = (low + high) / 2;
+        if v[mid] < value {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+
+    let idx = low;
+
+    // Check if the value falls between adjacent elements
+    if idx == 0 || idx == v.len() {
+        return None; // Out of bounds
+    }
+
+    Some((idx - 1, idx))
 }
