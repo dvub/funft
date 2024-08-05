@@ -28,25 +28,24 @@ fn main() {
 
                 // TODO:
                 // fix this unwrap_or
-                let (l, r) =
-                    find_adjacent_indices(&frequencies, current_frequency).unwrap_or((0, 0));
+                if let Some((l, r)) = find_adjacent_indices(&frequencies, current_frequency) {
+                    let midpoint = (frequencies[l] + frequencies[r]) / 2.0;
+                    let normalization = (midpoint - frequencies[l]).abs();
 
-                let midpoint = (frequencies[l] + frequencies[r]) / 2.0;
-                let normalization = midpoint - l as f32;
+                    let diff = (current_frequency - midpoint).abs();
 
-                let diff = (current_frequency - midpoint).abs();
+                    let amp = (diff / normalization).powi(2);
 
-                let amp = (diff / normalization).powi(2);
+                    let value = fft.at(channel, i);
+                    let adjusted_value = value * amp;
 
-                let value = fft.at(channel, i);
-                let adjusted_value = value * amp;
+                    let difference = (value.norm() - adjusted_value.norm()).abs();
+                    // subtract
+                    fft.set(channel, i, fft.at(channel, i) * amp);
+                    // add
 
-                let difference = (value.norm() - adjusted_value.norm()).abs();
-                // subtract
-                fft.set(channel, i, fft.at(channel, i) * amp);
-                // add
-
-                // add difference to closest target bin
+                    // add difference to closest target bin
+                }
             }
         }
     });
@@ -68,6 +67,7 @@ fn main() {
     let processed_fft_mags: Vec<_> = output2.iter().map(|s| s.norm()).collect();
     gen_chart(
         vec![(noise_fft_mags, BLUE), (processed_fft_mags, RED)],
+        generate_frequencies(),
         44100,
     );
 }
@@ -86,7 +86,7 @@ fn gen_noise() -> Vec<f32> {
     v
 }
 
-fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, sample_rate: usize) {
+fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, frequencies: Vec<f32>, sample_rate: usize) {
     let time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -101,14 +101,15 @@ fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, sample_rate: usize) {
 
     root.fill(&WHITE).unwrap();
 
-    let m = vecs[0].0.clone().into_iter().reduce(f32::max).unwrap();
+    let max_y = vecs[0].0.clone().into_iter().reduce(f32::max).unwrap();
+    let min_y = 0.0;
 
     let mut chart = ChartBuilder::on(&root)
         .margin(10)
         .caption(":3", ("sans-serif", 40))
         .x_label_area_size(40)
         .y_label_area_size(50)
-        .build_cartesian_2d((1000..5000).log_scale(), (0.0..m).log_scale())
+        .build_cartesian_2d((1000.0..5000.0).log_scale(), (min_y..max_y).log_scale())
         .unwrap();
 
     chart
@@ -121,10 +122,17 @@ fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, sample_rate: usize) {
         .draw()
         .unwrap();
 
+    for frequency in frequencies {
+        let v = vec![(frequency, min_y), (frequency, max_y)];
+        chart
+            .draw_series(LineSeries::new(v.into_iter(), GREEN.stroke_width(3)))
+            .unwrap();
+    }
+
     for vec in vecs {
         chart
             .draw_series(LineSeries::new(
-                vec.0.iter().enumerate().map(|(i, x)| (i, *x)),
+                vec.0.iter().enumerate().map(|(i, x)| (i as f32, *x)),
                 vec.1.filled(),
             ))
             .unwrap();
