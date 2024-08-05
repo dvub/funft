@@ -1,0 +1,134 @@
+use fundsp::hacker::*;
+
+use funft_utils::{find_adjacent_indices, generate_frequencies};
+
+use numeric_array::{generic_array::arr, NumericArray};
+use plotters::prelude::*;
+use rand::Rng;
+use realfft::RealFftPlanner;
+
+use std::{
+    fs::create_dir,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
+const OUT_DIR: &str = "./output";
+
+fn main() {
+    let window_length = 512;
+    let frequencies = generate_frequencies();
+
+    let mut noise = gen_noise();
+    // save an unprocessed copy
+    let mut pre_noise = noise.clone();
+    let mut synth = resynth::<U2, U2, _>(window_length, move |fft| {
+        for channel in 0..=1 {
+            for i in 0..fft.bins() {
+                let current_frequency = fft.frequency(i);
+
+                // TODO:
+                // fix this unwrap_or
+                let (l, r) =
+                    find_adjacent_indices(&frequencies, current_frequency).unwrap_or((0, 0));
+
+                let midpoint = (frequencies[l] + frequencies[r]) / 2.0;
+                let normalization = midpoint - l as f32;
+
+                let diff = (current_frequency - midpoint).abs();
+
+                let amp = (diff / normalization).powi(2);
+
+                let value = fft.at(channel, i);
+                let adjusted_value = value * amp;
+
+                let difference = (value.norm() - adjusted_value.norm()).abs();
+                // subtract
+                fft.set(channel, i, fft.at(channel, i) * amp);
+                // add
+
+                // add difference to closest target bin
+            }
+        }
+    });
+    for sample in &mut noise {
+        let samples_into_array = &NumericArray::new(arr![*sample; 2]);
+        *sample = synth.tick(samples_into_array)[0];
+    }
+
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(pre_noise.len());
+
+    let mut output = r2c.make_output_vec();
+    r2c.process(&mut pre_noise, &mut output).unwrap();
+
+    let mut output2 = r2c.make_output_vec();
+    r2c.process(&mut noise, &mut output2).unwrap();
+
+    let noise_fft_mags: Vec<_> = output.iter().map(|s| s.norm()).collect();
+    let processed_fft_mags: Vec<_> = output2.iter().map(|s| s.norm()).collect();
+    gen_chart(
+        vec![(noise_fft_mags, BLUE), (processed_fft_mags, RED)],
+        44100,
+    );
+}
+
+pub fn gain_to_db(gain: f32) -> f32 {
+    f32::max(gain, 1e-5).log10() * 20.0
+}
+
+fn gen_noise() -> Vec<f32> {
+    let mut rng = rand::thread_rng();
+    let mut v = Vec::new();
+    let amplitude = 0.25;
+    for _ in 0..=44100 {
+        v.push(rng.gen_range(-amplitude..amplitude));
+    }
+    v
+}
+
+fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, sample_rate: usize) {
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    if !Path::new(OUT_DIR).exists() {
+        create_dir(OUT_DIR).unwrap();
+    }
+
+    let path = Path::new(OUT_DIR).join(format!("{}.png", time));
+    let root = BitMapBackend::new(&path, (1024, 768)).into_drawing_area();
+
+    root.fill(&WHITE).unwrap();
+
+    let m = vecs[0].0.clone().into_iter().reduce(f32::max).unwrap();
+
+    let mut chart = ChartBuilder::on(&root)
+        .margin(10)
+        .caption(":3", ("sans-serif", 40))
+        .x_label_area_size(40)
+        .y_label_area_size(50)
+        .build_cartesian_2d((1000..5000).log_scale(), (0.0..m).log_scale())
+        .unwrap();
+
+    chart
+        .configure_mesh()
+        .x_labels(15)
+        .y_labels(5)
+        .x_desc("Frequency (Hz)")
+        .y_desc("FFT Magnitude")
+        .axis_desc_style(("sans-serif", 15))
+        .draw()
+        .unwrap();
+
+    for vec in vecs {
+        chart
+            .draw_series(LineSeries::new(
+                vec.0.iter().enumerate().map(|(i, x)| (i, *x)),
+                vec.1.filled(),
+            ))
+            .unwrap();
+    }
+
+    root.present().expect("Unable to write result to file.");
+}

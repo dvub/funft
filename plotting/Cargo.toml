@@ -1,10 +1,15 @@
 [package]
-name = "misc"
+name = "plotting"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+fundsp = "0.18.2"
 hound = "3.5.1"
 plotters = "0.3.6"
 realfft = "3.3.0"
 rustfft = "6.2.0"
+
+funft-utils = { path = "../funft-utils/" }
+
+rand = "0.8.5"
