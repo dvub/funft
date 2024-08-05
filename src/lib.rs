@@ -44,7 +44,7 @@ impl Default for Gain {
     fn default() -> Self {
         // The window length, which must be a power of two and at least four,
         // determines the frequency resolution. Latency is equal to the window length.
-        let window_length = 512;
+        let window_length = 2048;
         let frequencies = generate_frequencies();
 
         let depth = shared(1.0);

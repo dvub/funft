@@ -15,7 +15,7 @@ use std::{
 const OUT_DIR: &str = "./output";
 
 fn main() {
-    let window_length = 512;
+    let window_length = 1024;
     let frequencies = generate_frequencies();
 
     let mut noise = gen_noise();
@@ -85,7 +85,7 @@ fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, frequencies: &Vec<f32>, _sample_ra
         .caption(":3", ("sans-serif", 40))
         .x_label_area_size(40)
         .y_label_area_size(50)
-        .build_cartesian_2d((1000.0..5000.0).log_scale(), (min_y..max_y).log_scale())
+        .build_cartesian_2d((5000.0..6000.0).log_scale(), (min_y..max_y).log_scale())
         .unwrap();
 
     chart

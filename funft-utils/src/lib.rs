@@ -5,32 +5,45 @@ use std::thread::current;
 // BECAUSE JESUS FUCK!
 use fundsp::hacker::*;
 
-pub fn process(fft: &mut FftWindow, frequencies: &[f32], depth: &Shared) {
+pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32], depth: &Shared) {
     for channel in 0..=1 {
+        let mut in_key_indices = Vec::new();
+        // 1. find which bins are in key
         for i in 0..fft.bins() {
             let current_frequency = fft.frequency(i);
-            // for each bin's frequency, find the surrounding target frequencies
-            if let Some((low_frequency, high_frequency)) =
-                find_surrounding_frequencies(frequencies, current_frequency)
-            {
-                // find the middle between the 2 target frequencies
-                let midpoint_frequency = (low_frequency + high_frequency) / 2.0;
+            for f in in_key_frequencies {
+                // TODO: tweak this number
+                if (current_frequency - *f).abs() < 10.0 && !in_key_indices.contains(&i) {
+                    in_key_indices.push(i);
+                }
+            }
+        }
 
-                // get the distance to the midpoint, this is used for normalization
-                let norm_factor = (midpoint_frequency - low_frequency).abs();
-                // difference between the current frequency and midpoint
-                // for example, if the current frequency is close to the midpoint, it will be quieter
-                let diff = (current_frequency - midpoint_frequency).abs();
-                // TODO
-                // experiment with raising by a power
-                let amp = (diff / norm_factor).powf(depth.value());
+        for i in 0..fft.bins() {
+            // if the current bin is out of key, move its amplitude to the nearest in-key bin
+            if !in_key_indices.contains(&i) {
+                // get the current amplitude
+                let amp = fft.at(channel, i);
+                // reduce amplitude
 
-                let value = fft.at(channel, i);
-                let adjusted_value = value * amp;
+                fft.set(channel, i, Complex32::ZERO);
 
-                // subtract
-                fft.set(channel, i, fft.at(channel, i) * amp);
-                // add
+                let mut closest_in_key_index = usize::MAX;
+                for j in &in_key_indices {
+                    let r = (*j as isize - i as isize).unsigned_abs();
+                    if r < closest_in_key_index {
+                        closest_in_key_index = *j;
+                    }
+                }
+
+                fft.set(
+                    channel,
+                    closest_in_key_index,
+                    fft.at(channel, closest_in_key_index) + (amp),
+                );
+            } else {
+                // if the current bin is in-key, keep its amplitude the same
+                fft.set(channel, i, fft.at(channel, i));
             }
         }
     }
