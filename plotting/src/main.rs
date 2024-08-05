@@ -1,6 +1,6 @@
 use fundsp::hacker::*;
 
-use funft_utils::{find_adjacent_indices, generate_frequencies};
+use funft_utils::{generate_frequencies, process};
 
 use numeric_array::{generic_array::arr, NumericArray};
 use plotters::prelude::*;
@@ -14,6 +14,7 @@ use std::{
 };
 const OUT_DIR: &str = "./output";
 
+
 fn main() {
     let window_length = 512;
     let frequencies = generate_frequencies();
@@ -21,33 +22,8 @@ fn main() {
     let mut noise = gen_noise();
     // save an unprocessed copy
     let mut pre_noise = noise.clone();
-    let mut synth = resynth::<U2, U2, _>(window_length, move |fft| {
-        for channel in 0..=1 {
-            for i in 0..fft.bins() {
-                let current_frequency = fft.frequency(i);
-
-                // TODO:
-                // fix this unwrap_or
-                if let Some((l, r)) = find_adjacent_indices(&frequencies, current_frequency) {
-                    let midpoint = (frequencies[l] + frequencies[r]) / 2.0;
-                    let normalization = (midpoint - frequencies[l]).abs();
-
-                    let diff = (current_frequency - midpoint).abs();
-
-                    let amp = (diff / normalization).powi(2);
-
-                    let value = fft.at(channel, i);
-                    let adjusted_value = value * amp;
-
-                    let difference = (value.norm() - adjusted_value.norm()).abs();
-                    // subtract
-                    fft.set(channel, i, fft.at(channel, i) * amp);
-                    // add
-
-                    // add difference to closest target bin
-                }
-            }
-        }
+    let mut synth = resynth::<U2, U2, _>(window_length, |fft| {
+        process(fft, &frequencies);
     });
     for sample in &mut noise {
         let samples_into_array = &NumericArray::new(arr![*sample; 2]);
@@ -67,7 +43,7 @@ fn main() {
     let processed_fft_mags: Vec<_> = output2.iter().map(|s| s.norm()).collect();
     gen_chart(
         vec![(noise_fft_mags, BLUE), (processed_fft_mags, RED)],
-        generate_frequencies(),
+        &frequencies,
         44100,
     );
 }
@@ -86,7 +62,7 @@ fn gen_noise() -> Vec<f32> {
     v
 }
 
-fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, frequencies: Vec<f32>, sample_rate: usize) {
+fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, frequencies: &Vec<f32>, _sample_rate: usize) {
     let time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -123,7 +99,7 @@ fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, frequencies: Vec<f32>, sample_rate
         .unwrap();
 
     for frequency in frequencies {
-        let v = vec![(frequency, min_y), (frequency, max_y)];
+        let v = vec![(*frequency, min_y), (*frequency, max_y)];
         chart
             .draw_series(LineSeries::new(v.into_iter(), GREEN.stroke_width(3)))
             .unwrap();

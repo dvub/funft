@@ -1,6 +1,35 @@
 // TODO:
 // rewrite ALL OF this dogshit code
 // BECAUSE JESUS FUCK!
+use fundsp::hacker::*;
+
+pub fn process(fft: &mut FftWindow, frequencies: &Vec<f32>) {
+    for channel in 0..=1 {
+        for i in 0..fft.bins() {
+            let current_frequency = fft.frequency(i);
+
+            // TODO:
+            // fix this unwrap_or
+            if let Some((l, r)) = find_surrounding_frequencies(&frequencies, current_frequency) {
+                let midpoint = (l  + r) / 2.0;
+                let normalization = (midpoint - l).abs();
+                let diff = (current_frequency - midpoint).abs();
+
+                let amp = (diff / normalization).powi(2);
+
+                let value = fft.at(channel, i);
+                let adjusted_value = value * amp;
+
+                let _difference = (value.norm() - adjusted_value.norm()).abs();
+                // subtract
+                fft.set(channel, i, fft.at(channel, i) * amp);
+                // add
+
+                // add difference to closest target bin
+            }
+        }
+    }
+}
 
 fn midi_to_freq(x: f32) -> f32 {
     440.0 * 2.0_f32.powf((x - 69.0) / 12.0)
@@ -38,7 +67,7 @@ pub fn generate_frequencies() -> Vec<f32> {
     freqs
 }
 
-pub fn find_adjacent_indices(v: &[f32], value: f32) -> Option<(usize, usize)> {
+pub fn find_surrounding_frequencies(v: &[f32], value: f32) -> Option<(f32, f32)> {
     // Ensure the vector is sorted and not empty
     /*if v.is_empty() || value < v[0] || value > v[v.len() - 1] {
         return None;
@@ -64,7 +93,7 @@ pub fn find_adjacent_indices(v: &[f32], value: f32) -> Option<(usize, usize)> {
         return None; // Out of bounds
     }
 
-    Some((idx - 1, idx))
+    Some((v[idx - 1], v[idx]))
 }
 
 mod tests {
@@ -84,6 +113,6 @@ mod tests {
     fn test_adjacent() {
         let v = 2.0;
         let vec = vec![0.5, 1.0, 3.0, 5.0];
-        assert_eq!(super::find_adjacent_indices(&vec, v).unwrap(), (1, 2));
+        assert_eq!(super::find_surrounding_frequencies(&vec, v).unwrap(), (1.0, 3.0));
     }
 }

@@ -1,6 +1,6 @@
-use core::f32;
+
 use fundsp::hacker::*;
-use funft_utils::{find_adjacent_indices, generate_frequencies};
+use funft_utils::{generate_frequencies, process};
 use nih_plug::prelude::*;
 
 use std::sync::Arc;
@@ -31,23 +31,7 @@ impl Default for Gain {
         let frequencies = generate_frequencies();
 
         let synth = resynth::<U2, U2, _>(window_length, move |fft| {
-            for channel in 0..=1 {
-                // iterate through fft bins
-                for i in 0..fft.bins() {
-                    let current_frequency = fft.frequency(i);
-
-                    if let Some((l, r)) = find_adjacent_indices(&frequencies, current_frequency) {
-                        let midpoint = (frequencies[l] + frequencies[r]) / 2.0;
-
-                        let half = (midpoint - l as f32).abs();
-
-                        let diff = (current_frequency - midpoint).abs();
-
-                        let amp = (diff / half).powi(2);
-                        fft.set(channel, i, fft.at(channel, i) * amp);
-                    }
-                }
-            }
+            process(fft, &frequencies);
         });
 
         let graph = synth;

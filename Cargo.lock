@@ -545,6 +545,9 @@ dependencies = [
 [[package]]
 name = "funft-utils"
 version = "0.1.0"
+dependencies = [
+ "fundsp",
+]
 
 [[package]]
 name = "funutd"
