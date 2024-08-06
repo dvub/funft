@@ -15,15 +15,14 @@ use std::{
 const OUT_DIR: &str = "./output";
 
 fn main() {
-    let window_length = 1024;
+    let window_length = 2048;
     let frequencies = generate_frequencies();
 
     let mut noise = gen_noise();
     // save an unprocessed copy
     let mut pre_noise = noise.clone();
-    let v = shared(1.5);
     let mut synth = resynth::<U2, U2, _>(window_length, |fft| {
-        process(fft, &frequencies, &v);
+        process(fft, &frequencies, &shared(0.0), &shared(0.0));
     });
     for sample in &mut noise {
         let samples_into_array = &NumericArray::new(arr![*sample; 2]);

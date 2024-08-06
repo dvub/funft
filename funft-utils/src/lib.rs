@@ -1,11 +1,14 @@
-use std::thread::current;
-
 // TODO:
 // rewrite ALL OF this dogshit code
 // BECAUSE JESUS FUCK!
 use fundsp::hacker::*;
 
-pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32], depth: &Shared) {
+pub fn process(
+    fft: &mut FftWindow,
+    in_key_frequencies: &[f32],
+    subtraction_factor: &Shared,
+    addition_factor: &Shared,
+) {
     for channel in 0..=1 {
         let mut in_key_indices = Vec::new();
         // 1. find which bins are in key
@@ -13,37 +16,43 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32], depth: &Shared) 
             let current_frequency = fft.frequency(i);
             for f in in_key_frequencies {
                 // TODO: tweak this number
-                if (current_frequency - *f).abs() < 10.0 && !in_key_indices.contains(&i) {
+                if (current_frequency - *f).abs() < 25.0 && !in_key_indices.contains(&i) {
                     in_key_indices.push(i);
                 }
             }
         }
-
         for i in 0..fft.bins() {
-            // if the current bin is out of key, move its amplitude to the nearest in-key bin
-            if !in_key_indices.contains(&i) {
-                // get the current amplitude
-                let amp = fft.at(channel, i);
-                // reduce amplitude
+            if fft.frequency(i) >= 0.0 && fft.frequency(i) <= 44_100.0 {
+                // if the current bin is out of key, move its amplitude to the nearest in-key bin
+                if !in_key_indices.contains(&i) {
+                    // get the current amplitude
+                    let current_amp = fft.at(channel, i);
+                    // reduce amplitude
 
-                fft.set(channel, i, Complex32::ZERO);
+                    fft.set(channel, i, current_amp * subtraction_factor.value());
 
-                let mut closest_in_key_index = usize::MAX;
-                for j in &in_key_indices {
-                    let r = (*j as isize - i as isize).unsigned_abs();
-                    if r < closest_in_key_index {
-                        closest_in_key_index = *j;
+                    let mut closest_in_key_index = i32::MAX;
+                    let mut min_difference = i32::MAX;
+                    for j in &in_key_indices {
+                        let difference = (*j as i32 - i as i32).abs();
+
+                        if difference < min_difference {
+                            closest_in_key_index = *j as i32;
+                            min_difference = difference;
+                        }
                     }
-                }
 
-                fft.set(
-                    channel,
-                    closest_in_key_index,
-                    fft.at(channel, closest_in_key_index) + (amp),
-                );
-            } else {
-                // if the current bin is in-key, keep its amplitude the same
-                fft.set(channel, i, fft.at(channel, i));
+                    fft.set(
+                        channel,
+                        closest_in_key_index as usize,
+                        fft.at(channel, closest_in_key_index as usize)
+                            + (current_amp * addition_factor.value()),
+                        // Complex32::ZERO,
+                    );
+                } else {
+                    // if the current bin is in-key, keep its amplitude the same
+                    fft.set(channel, i, fft.at(channel, i));
+                }
             }
         }
     }
@@ -62,7 +71,7 @@ pub fn generate_frequencies() -> Vec<f32> {
     let max_frequency = 44100.0; // Maximum frequency
 
     // C Major scale intervals (C, D, E, F, G, A, B, )
-    let scale_intervals = vec![0, 2, 3, 5, 7, 8, 10];
+    let scale_intervals = vec![0, 2, 3, 5, 7, 10];
 
     let mut freqs = Vec::new();
     let mut octave = 0;

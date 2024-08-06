@@ -8,14 +8,21 @@ use typenum::{UInt, UTerm};
 #[derive(Params)]
 
 struct GainParams {
-    #[id = "depth"]
-    depth: FloatParam,
+    #[id = "subract"]
+    subtraction: FloatParam,
+    #[id = "add"]
+    addition: FloatParam,
 }
 impl GainParams {
     pub fn new() -> Self {
         GainParams {
-            depth: FloatParam::new(
-                "Depth",
+            subtraction: FloatParam::new(
+                "Subtraction",
+                0.0,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            ),
+            addition: FloatParam::new(
+                "Addition",
                 1.0,
                 FloatRange::Linear {
                     min: 0.0,
@@ -27,7 +34,8 @@ impl GainParams {
 }
 
 struct Gain {
-    depth: Shared,
+    subtraction: Shared,
+    addition: Shared,
     graph: Box<dyn AudioUnit>,
     input_buffer: BufferArray<UInt<UInt<UTerm, typenum::B1>, typenum::B0>>,
     output_buffer: BufferArray<UInt<UInt<UTerm, typenum::B1>, typenum::B0>>,
@@ -47,16 +55,20 @@ impl Default for Gain {
         let window_length = 2048;
         let frequencies = generate_frequencies();
 
-        let depth = shared(1.0);
-        let c = depth.clone();
+        let subtraction_factor = shared(1.0);
+        let addition_factor = shared(1.0);
+
+        let sfc = subtraction_factor.clone();
+        let afc = addition_factor.clone();
         let synth = resynth::<U2, U2, _>(window_length, move |fft| {
-            process(fft, &frequencies, &c);
+            process(fft, &frequencies, &sfc, &afc);
         });
 
         let graph = synth;
 
         Self {
-            depth,
+            subtraction: subtraction_factor,
+            addition: addition_factor,
             graph: Box::new(graph),
             params: Arc::new(GainParams::new()),
 
@@ -140,7 +152,8 @@ impl Plugin for Gain {
                         .set_f32(channel_index, sample_index, sample);
                 }
             }
-            self.depth.set(self.params.depth.value());
+            self.subtraction.set(self.params.subtraction.value());
+            self.addition.set(self.params.addition.value());
 
             self.graph.process(
                 block.samples(),
@@ -158,6 +171,16 @@ impl Plugin for Gain {
         }
 
         ProcessStatus::Normal
+    }
+    fn initialize(
+        &mut self,
+        audio_io_layout: &AudioIOLayout,
+        buffer_config: &BufferConfig,
+        context: &mut impl InitContext<Self>,
+    ) -> bool {
+        context.set_latency_samples(2048);
+
+        true
     }
 
     // This can be used for cleaning up special resources like socket connections whenever the
