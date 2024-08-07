@@ -1,5 +1,5 @@
 mod plots;
-
+mod signals;
 use plots::{frequency_plot, generic_plot};
 
 use fundsp::hacker::*;
@@ -9,6 +9,7 @@ use numeric_array::{generic_array::arr, NumericArray};
 use plotters::prelude::*;
 use rand::Rng;
 use realfft::RealFftPlanner;
+use signals::gen_noise;
 use std::{
     fs::create_dir,
     path::Path,
@@ -92,22 +93,4 @@ fn main() {
         &frequencies,
         44100,
     );
-}
-
-pub fn gen_noise() -> Vec<f32> {
-    let mut rng = rand::thread_rng();
-    let mut v = Vec::new();
-    let amplitude = 1.0;
-
-    let max = 44100;
-    for _ in 0..=1000 {
-        v.push(0.0);
-    }
-
-    for i in 1000..=44100 {
-        let mult = 1.0 - (i as f32 / max as f32);
-        // println!("{}", mult);
-        v.push(rng.gen_range(-amplitude..amplitude) * mult);
-    }
-    v
 }

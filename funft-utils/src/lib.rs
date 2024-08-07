@@ -8,8 +8,8 @@ use fundsp::hacker::*;
 const OVERSAMPLE_FACTOR: usize = 4;
 
 pub fn generate_graph(
-    lasr_shared: &Shared,
-    sasr_shared: &Shared,
+    slow_shared: &Shared,
+    fast_shared: &Shared,
     dry_wet: &Shared,
 ) -> Box<dyn AudioUnit> {
     // The window length, which must be a power of two and at least four,
@@ -19,10 +19,15 @@ pub fn generate_graph(
     let frequencies = generate_frequencies();
 
     let mixdown = mul(0.5) + mul(0.5);
-    let lasr =
-        mixdown.clone() >> afollow(1.0, 0.05) >> monitor(lasr_shared, Meter::Sample) >> sink();
-    let sasr =
-        mixdown.clone() >> afollow(0.005, 0.1) >> monitor(sasr_shared, Meter::Sample) >> sink();
+
+    // TODO:
+    // i want to parameterize these.. but how
+    let slow =
+        mixdown.clone() >> afollow(0.1, 0.03) >> monitor(slow_shared, Meter::Sample) >> sink();
+    let fast =
+        mixdown.clone() >> afollow(0.005, 0.1) >> monitor(fast_shared, Meter::Sample) >> sink();
+
+        
 
     let synth = resynth::<U2, U2, _>(window_length, move |fft| {
         process(fft, &frequencies);
@@ -34,7 +39,7 @@ pub fn generate_graph(
     let mixed = (wet * synth) & (dry * multipass::<U2>());
 
     // now, we may describe the flow of our
-    let graph = sasr ^ lasr ^ mixed;
+    let graph = fast ^ slow ^ mixed;
     Box::new(graph)
 }
 
