@@ -1,33 +1,78 @@
+mod plots;
+
+use plots::{frequency_plot, generic_plot};
+
 use fundsp::hacker::*;
-
-use funft_utils::{generate_frequencies, process};
-
+use funft_utils::{generate_frequencies, generate_graph};
 use numeric_array::{generic_array::arr, NumericArray};
+
 use plotters::prelude::*;
 use rand::Rng;
 use realfft::RealFftPlanner;
-
 use std::{
     fs::create_dir,
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
+
 const OUT_DIR: &str = "./output";
-
 fn main() {
-    let window_length = 2048;
-    let frequencies = generate_frequencies();
-
+    // generate a test signal to operate on
     let mut noise = gen_noise();
     // save an unprocessed copy
     let mut pre_noise = noise.clone();
-    let mut synth = resynth::<U2, U2, _>(window_length, |fft| {
-        process(fft, &frequencies, &shared(0.0), &shared(0.25));
-    });
+
+    let frequencies = generate_frequencies();
+
+    let lasr_shared = shared(0.0);
+    let sasr_shared = shared(0.0);
+    let delta = shared(0.0);
+
+    // this graph will handle all of our audio processing
+    let mut graph = generate_graph(&lasr_shared, &sasr_shared, &delta);
+
+    // vector to hold our processor's transient detection
+    let mut deltas = Vec::new();
+    let mut bleh = Vec::new();
+    let mut bleh2 = Vec::new();
+
     for sample in &mut noise {
+        // convert our data into something that our graph can work with
         let samples_into_array = &NumericArray::new(arr![*sample; 2]);
-        *sample = synth.tick(samples_into_array)[0];
+        let mut out = [0.0; 2];
+        // process
+        graph.tick(samples_into_array, &mut out);
+        *sample = out[0];
+
+        let lasr = lasr_shared.value().abs();
+        let sasr = sasr_shared.value().abs();
+        let d = (lasr / sasr).clamp(0.0, 1.0);
+        delta.set(d);
+
+        deltas.push(d);
+        bleh.push(lasr);
+        bleh2.push(sasr);
     }
+    // now its time to create our fun plots!
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    if !Path::new(OUT_DIR).exists() {
+        create_dir(OUT_DIR).unwrap();
+    }
+    let dir = Path::new(OUT_DIR).join(time.to_string());
+    create_dir(&dir).unwrap();
+    generic_plot(
+        &dir.join("time domain.png"),
+        vec![
+            (pre_noise.clone(), BLUE),
+            (deltas, RED),
+            (bleh, GREEN),
+            (bleh2, BLACK),
+        ],
+    );
 
     let mut planner = RealFftPlanner::<f32>::new();
     let r2c = planner.plan_fft_forward(pre_noise.len());
@@ -40,78 +85,29 @@ fn main() {
 
     let noise_fft_mags: Vec<_> = output.iter().map(|s| s.norm()).collect();
     let processed_fft_mags: Vec<_> = output2.iter().map(|s| s.norm()).collect();
-    gen_chart(
+
+    frequency_plot(
+        &dir.join("freq domain.png"),
         vec![(noise_fft_mags, BLUE), (processed_fft_mags, RED)],
         &frequencies,
         44100,
     );
 }
 
-pub fn gain_to_db(gain: f32) -> f32 {
-    f32::max(gain, 1e-5).log10() * 20.0
-}
-
-fn gen_noise() -> Vec<f32> {
+pub fn gen_noise() -> Vec<f32> {
     let mut rng = rand::thread_rng();
     let mut v = Vec::new();
-    let amplitude = 0.25;
-    for _ in 0..=44100 {
-        v.push(rng.gen_range(-amplitude..amplitude));
+    let amplitude = 1.0;
+
+    let max = 44100;
+    for _ in 0..=1000 {
+        v.push(0.0);
+    }
+
+    for i in 1000..=44100 {
+        let mult = 1.0 - (i as f32 / max as f32);
+        // println!("{}", mult);
+        v.push(rng.gen_range(-amplitude..amplitude) * mult);
     }
     v
-}
-
-fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, frequencies: &Vec<f32>, _sample_rate: usize) {
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-
-    if !Path::new(OUT_DIR).exists() {
-        create_dir(OUT_DIR).unwrap();
-    }
-
-    let path = Path::new(OUT_DIR).join(format!("{}.png", time));
-    let root = BitMapBackend::new(&path, (1024, 768)).into_drawing_area();
-
-    root.fill(&WHITE).unwrap();
-
-    let max_y = vecs[0].0.clone().into_iter().reduce(f32::max).unwrap();
-    let min_y = 0.0;
-
-    let mut chart = ChartBuilder::on(&root)
-        .margin(10)
-        .caption(":3", ("sans-serif", 40))
-        .x_label_area_size(40)
-        .y_label_area_size(50)
-        .build_cartesian_2d((1_000.0..10_000.0).log_scale(), (min_y..max_y).log_scale())
-        .unwrap();
-
-    chart
-        .configure_mesh()
-        .x_labels(15)
-        .y_labels(5)
-        .x_desc("Frequency (Hz)")
-        .y_desc("FFT Magnitude")
-        .axis_desc_style(("sans-serif", 15))
-        .draw()
-        .unwrap();
-
-    for frequency in frequencies {
-        let v = vec![(*frequency, min_y), (*frequency, max_y)];
-        chart
-            .draw_series(LineSeries::new(v.into_iter(), GREEN.stroke_width(3)))
-            .unwrap();
-    }
-
-    for vec in vecs {
-        chart
-            .draw_series(LineSeries::new(
-                vec.0.iter().enumerate().map(|(i, x)| (i as f32, *x)),
-                vec.1.filled(),
-            ))
-            .unwrap();
-    }
-
-    root.present().expect("Unable to write result to file.");
 }

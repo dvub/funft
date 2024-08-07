@@ -7,12 +7,40 @@ use fundsp::hacker::*;
 
 const OVERSAMPLE_FACTOR: usize = 4;
 
-pub fn process(
-    fft: &mut FftWindow,
-    in_key_frequencies: &[f32],
-    subtraction_factor: &Shared,
-    addition_factor: &Shared,
-) {
+pub fn generate_graph(
+    lasr_shared: &Shared,
+    sasr_shared: &Shared,
+    dry_wet: &Shared,
+) -> Box<dyn AudioUnit> {
+    // The window length, which must be a power of two and at least four,
+    // determines the frequency resolution. Latency is equal to the window length.
+    let window_length = 2048;
+    // hmm...
+    let frequencies = generate_frequencies();
+
+    let mixdown = mul(0.5) + mul(0.5);
+    let lasr =
+        mixdown.clone() >> afollow(1.0, 0.05) >> monitor(lasr_shared, Meter::Sample) >> sink();
+    let sasr =
+        mixdown.clone() >> afollow(0.005, 0.1) >> monitor(sasr_shared, Meter::Sample) >> sink();
+
+    let synth = resynth::<U2, U2, _>(window_length, move |fft| {
+        process(fft, &frequencies);
+    });
+
+    let wet = var(dry_wet) | var(dry_wet);
+    let dry = (1.0 - var(dry_wet)) | (1.0 - var(dry_wet));
+
+    let mixed = (wet * synth) & (dry * multipass::<U2>());
+
+    // now, we may describe the flow of our
+    let graph = sasr ^ lasr ^ mixed;
+    Box::new(graph)
+}
+
+pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
+    // println!("{transient}");
+
     let window_length = fft.length();
     let step_size = window_length / OVERSAMPLE_FACTOR;
     let expected_phase = 2.0 * PI * step_size as f32 / window_length as f32;
@@ -57,6 +85,7 @@ pub fn process(
             analysis[k] = (true_freq, magnitude);
         }
         /* this does the actual pitch shifting */
+        let mut vov: Vec<Vec<f32>> = vec![Vec::new(); fft.bins()];
         for k in 0..fft.bins() {
             let freq = analysis[k].0;
             let mag = analysis[k].1;
@@ -88,9 +117,16 @@ pub fn process(
                 }
 
                 // this subtraction doesn't work - why?
-                // synthesis[k].1 -= subtraction_factor.value();
-                synthesis[nearest_in_key_bin_index].1 += mag * addition_factor.value();
+                synthesis[k].1 += mag * 0.1;
+
+                vov[nearest_in_key_bin_index].push(mag);
             }
+        }
+        for (i, v) in vov.iter().enumerate() {
+            let sum = v.iter().sum::<f32>();
+            let len = v.len();
+            let avg = sum / max(len, 1) as f32;
+            synthesis[i].1 += (avg * 1.25);
         }
 
         for k in 0..fft.bins() {
@@ -174,35 +210,6 @@ pub fn generate_frequencies() -> Vec<f32> {
     freqs
 }
 
-pub fn find_surrounding_frequencies(v: &[f32], value: f32) -> Option<(f32, f32)> {
-    // Ensure the vector is sorted and not empty
-    /*if v.is_empty() || value < v[0] || value > v[v.len() - 1] {
-        return None;
-    }*/
-
-    // Binary search to find the index where value would be inserted
-    let mut low = 0;
-    let mut high = v.len();
-
-    while low < high {
-        let mid = (low + high) / 2;
-        if v[mid] < value {
-            low = mid + 1;
-        } else {
-            high = mid;
-        }
-    }
-
-    let idx = low;
-
-    // Check if the value falls between adjacent elements
-    if idx == 0 || idx == v.len() {
-        return None; // Out of bounds
-    }
-
-    Some((v[idx - 1], v[idx]))
-}
-
 mod tests {
 
     #[test]
@@ -215,19 +222,5 @@ mod tests {
     fn test_generate_frequencies() {
         use super::generate_frequencies;
         println!("{:?}", generate_frequencies());
-    }
-    #[test]
-    fn test_adjacent() {
-        let vec = vec![0.5, 1.0, 3.0, 5.0];
-        let v1 = 2.0;
-        let v2 = 0.7;
-        assert_eq!(
-            super::find_surrounding_frequencies(&vec, v1).unwrap(),
-            (1.0, 3.0)
-        );
-        assert_eq!(
-            super::find_surrounding_frequencies(&vec, v2).unwrap(),
-            (0.5, 1.0)
-        );
     }
 }

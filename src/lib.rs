@@ -1,5 +1,5 @@
 use fundsp::hacker::*;
-use funft_utils::{generate_frequencies, process};
+use funft_utils::generate_graph;
 use nih_plug::prelude::*;
 
 use std::sync::Arc;
@@ -7,62 +7,37 @@ use typenum::{UInt, UTerm};
 
 #[derive(Params)]
 
-struct GainParams {
-    #[id = "subract"]
-    subtraction: FloatParam,
-    #[id = "add"]
-    addition: FloatParam,
-}
+struct GainParams {}
 impl GainParams {
     pub fn new() -> Self {
-        GainParams {
-            subtraction: FloatParam::new(
-                "Subtraction",
-                0.0,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            ),
-            addition: FloatParam::new("Addition", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
-        }
+        GainParams {}
     }
 }
 
 struct Gain {
-    subtraction: Shared,
-    addition: Shared,
+    sasr_shared: Shared,
+    lasr_shared: Shared,
+    dry_wet: Shared,
     graph: Box<dyn AudioUnit>,
     input_buffer: BufferArray<UInt<UInt<UTerm, typenum::B1>, typenum::B0>>,
     output_buffer: BufferArray<UInt<UInt<UTerm, typenum::B1>, typenum::B0>>,
     params: Arc<GainParams>,
 }
 
-#[derive(PartialEq, nih_plug::prelude::Enum)]
-pub enum LevelDetection {
-    Rms,
-    Peak,
-}
-
 impl Default for Gain {
     fn default() -> Self {
-        // The window length, which must be a power of two and at least four,
-        // determines the frequency resolution. Latency is equal to the window length.
-        let window_length = 2048;
-        let frequencies = generate_frequencies();
+        let lasr_shared = shared(0.0);
+        let sasr_shared = shared(0.0);
+        let delta = shared(0.0);
 
-        let subtraction_factor = shared(1.0);
-        let addition_factor = shared(1.0);
-
-        let sfc = subtraction_factor.clone();
-        let afc = addition_factor.clone();
-        let synth = resynth::<U2, U2, _>(window_length, move |fft| {
-            process(fft, &frequencies, &sfc, &afc);
-        });
-
-        let graph = synth;
+        let graph = generate_graph(&lasr_shared, &sasr_shared, &delta);
 
         Self {
-            subtraction: subtraction_factor,
-            addition: addition_factor,
-            graph: Box::new(graph),
+            sasr_shared,
+            lasr_shared,
+            dry_wet: delta,
+
+            graph,
             params: Arc::new(GainParams::new()),
 
             input_buffer: BufferArray::<U2>::new(),
@@ -145,8 +120,11 @@ impl Plugin for Gain {
                         .set_f32(channel_index, sample_index, sample);
                 }
             }
-            self.subtraction.set(self.params.subtraction.value());
-            self.addition.set(self.params.addition.value());
+
+            let lasr = self.lasr_shared.value().abs();
+            let sasr = self.sasr_shared.value().abs();
+            let dw = (lasr / sasr).clamp(0.0, 1.0);
+            self.dry_wet.set(dw);
 
             self.graph.process(
                 block.samples(),
@@ -167,8 +145,8 @@ impl Plugin for Gain {
     }
     fn initialize(
         &mut self,
-        audio_io_layout: &AudioIOLayout,
-        buffer_config: &BufferConfig,
+        _audio_io_layout: &AudioIOLayout,
+        _buffer_config: &BufferConfig,
         context: &mut impl InitContext<Self>,
     ) -> bool {
         context.set_latency_samples(2048);
