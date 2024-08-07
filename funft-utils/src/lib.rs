@@ -20,14 +20,25 @@ pub fn generate_graph(
 
     let mixdown = mul(0.5) + mul(0.5);
 
-    // TODO:
-    // i want to parameterize these.. but how
+    // gives us nice dips when transients occur
+
+    // 0.25, 0.03
+    // 0.005, 0.1
+
+    // turning up the first value will overall increase the wetness of the effect
+    // 0.5 is a bit too much for first value
+
+    // second value has a similar effect
+    // 0.5 or 0.6 is probably a good limit
+
     let slow =
-        mixdown.clone() >> afollow(0.1, 0.03) >> monitor(slow_shared, Meter::Sample) >> sink();
+        mixdown.clone() >> afollow(0.25, 0.015) >> monitor(slow_shared, Meter::Sample) >> sink();
+    // this fast envelope follow should not be tweaked too much, if at all
     let fast =
         mixdown.clone() >> afollow(0.005, 0.1) >> monitor(fast_shared, Meter::Sample) >> sink();
 
-        
+    // alternative idea: use a peak meter
+    // mixdown >> monitor(&dry_wet, Meter::Peak(0.4)) >> sink()
 
     let synth = resynth::<U2, U2, _>(window_length, move |fft| {
         process(fft, &frequencies);
@@ -38,7 +49,7 @@ pub fn generate_graph(
 
     let mixed = (wet * synth) & (dry * multipass::<U2>());
 
-    // now, we may describe the flow of our
+    // now that we've described the components, we can put them together
     let graph = fast ^ slow ^ mixed;
     Box::new(graph)
 }
