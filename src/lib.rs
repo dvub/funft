@@ -21,14 +21,7 @@ impl GainParams {
                 0.0,
                 FloatRange::Linear { min: 0.0, max: 1.0 },
             ),
-            addition: FloatParam::new(
-                "Addition",
-                1.0,
-                FloatRange::Linear {
-                    min: 0.0,
-                    max: 10.0,
-                },
-            ),
+            addition: FloatParam::new("Addition", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
         }
     }
 }

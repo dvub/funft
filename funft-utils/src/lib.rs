@@ -1,7 +1,11 @@
+use std::f32::consts::PI;
+
 // TODO:
 // rewrite ALL OF this dogshit code
 // BECAUSE JESUS FUCK!
 use fundsp::hacker::*;
+
+const OVERSAMPLE_FACTOR: usize = 4;
 
 pub fn process(
     fft: &mut FftWindow,
@@ -9,53 +13,129 @@ pub fn process(
     subtraction_factor: &Shared,
     addition_factor: &Shared,
 ) {
+    let window_length = fft.length();
+    let step_size = window_length / OVERSAMPLE_FACTOR;
+    let expected_phase = 2.0 * PI * step_size as f32 / window_length as f32;
+    let freq_per_bin = fft.sample_rate() as f32 / window_length as f32;
+
     for channel in 0..=1 {
-        let mut in_key_indices = Vec::new();
-        // 1. find which bins are in key
-        for i in 0..fft.bins() {
-            let current_frequency = fft.frequency(i);
-            for f in in_key_frequencies {
-                // TODO: tweak this number
-                if (current_frequency - *f).abs() < 25.0 && !in_key_indices.contains(&i) {
-                    in_key_indices.push(i);
+        let mut last_phase = vec![0.0; window_length];
+        let mut phase_sum = vec![0.0; window_length];
+
+        let mut analysis = vec![(0.0, 0.0); fft.bins()];
+        let mut synthesis = vec![(0.0, 0.0); fft.bins()];
+        /* this is the analysis step */
+        for k in 0..fft.bins() {
+            /* compute magnitude and phase */
+            let current = fft.at(channel, k);
+            let phase = current.atan().re;
+
+            /* compute phase difference */
+            let mut tmp = phase - last_phase[k];
+            last_phase[k] = phase;
+
+            /* subtract expected phase difference */
+            // (from overlap)
+            tmp -= k as f32 * expected_phase;
+
+            /* map delta phase into +/- Pi interval */
+            let mut qpd = (tmp / PI) as i32;
+            let v = qpd & 1;
+            if qpd >= 0 {
+                qpd += v;
+            } else {
+                qpd -= v;
+            }
+            tmp -= PI * qpd as f32;
+
+            /* get deviation from bin frequency from the +/- Pi interval */
+            tmp = OVERSAMPLE_FACTOR as f32 * tmp / (2.0 * PI);
+            /* compute the k-th partials' true frequency */
+            let true_freq = k as f32 * freq_per_bin + tmp * freq_per_bin;
+            let magnitude = current.norm();
+            /* store magnitude and true frequency in analysis array */
+            analysis[k] = (true_freq, magnitude);
+        }
+        /* this does the actual pitch shifting */
+        for k in 0..fft.bins() {
+            let freq = analysis[k].0;
+            let mag = analysis[k].1;
+
+            synthesis[k].0 = freq;
+
+            if is_in_key(in_key_frequencies, freq) {
+                synthesis[k].1 += mag;
+            } else {
+                let mut nearest_ikf = 0.0;
+                let mut min_diff = f32::MAX;
+
+                for ikf in in_key_frequencies {
+                    let new_diff = (freq - *ikf).abs();
+                    if new_diff < min_diff {
+                        min_diff = new_diff;
+                        nearest_ikf = *ikf;
+                    }
                 }
+
+                let mut index = 0;
+                let mut min = f32::MAX;
+                for j in 0..fft.bins() {
+                    let diff = (nearest_ikf - fft.frequency(j)).abs();
+                    if diff < min {
+                        min = diff;
+                        index = j;
+                    }
+                }
+
+                // this subtraction doesn't work - why?
+                // synthesis[k].1 = (synthesis[k].1 + mag * -subtraction_factor.value()).min(0.0);
+                synthesis[index].1 += mag * addition_factor.value();
             }
         }
-        for i in 0..fft.bins() {
-            if fft.frequency(i) >= 0.0 && fft.frequency(i) <= 44_100.0 {
-                // if the current bin is out of key, move its amplitude to the nearest in-key bin
-                if !in_key_indices.contains(&i) {
-                    // get the current amplitude
-                    let current_amp = fft.at(channel, i);
-                    // reduce amplitude
 
-                    fft.set(channel, i, current_amp * subtraction_factor.value());
+        for k in 0..fft.bins() {
+            /* get magnitude and true frequency from synthesis array */
+            let mag = synthesis[k].1;
+            let mut freq = synthesis[k].0;
+            /* subtract bin middle frequency */
+            freq -= k as f32 * freq_per_bin;
+            /* get bin deviation from freq deviation */
+            freq /= freq_per_bin;
+            /* take oversampling into account */
+            freq = 2.0 * PI * freq / OVERSAMPLE_FACTOR as f32;
+            /* add the overlap phase advance back in */
+            freq += k as f32 * expected_phase;
+            /* accumulate delta phase to get bin phase */
+            phase_sum[k] += freq;
+            let phase = phase_sum[k];
+            /* get real and imag part.. */
+            let real_component = mag * phase.sin();
+            let imaginary_component = mag * phase.cos();
 
-                    let mut closest_in_key_index = i32::MAX;
-                    let mut min_difference = i32::MAX;
-                    for j in &in_key_indices {
-                        let difference = (*j as i32 - i as i32).abs();
+            let output = Complex32::new(real_component, imaginary_component);
+            let current = fft.frequency(k);
 
-                        if difference < min_difference {
-                            closest_in_key_index = *j as i32;
-                            min_difference = difference;
-                        }
-                    }
+            let band_min = 0.0;
+            let band_max = 44_100.0;
 
-                    fft.set(
-                        channel,
-                        closest_in_key_index as usize,
-                        fft.at(channel, closest_in_key_index as usize)
-                            + (current_amp * addition_factor.value()),
-                        // Complex32::ZERO,
-                    );
-                } else {
-                    // if the current bin is in-key, keep its amplitude the same
-                    fft.set(channel, i, fft.at(channel, i));
-                }
+            if (band_min..=band_max).contains(&current) {
+                fft.set(channel, k, output);
             }
         }
     }
+}
+
+fn is_in_key(in_key_frequencies: &[f32], frequency: f32) -> bool {
+    let mut result = false;
+    for ikf in in_key_frequencies {
+        // TODO:
+        // tweak this tolerance!
+        if (frequency - *ikf).abs() <= 25.0 {
+            result = true;
+            break;
+        }
+    }
+    result
 }
 
 fn midi_to_freq(x: f32) -> f32 {
