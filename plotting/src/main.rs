@@ -22,7 +22,7 @@ fn main() {
     // save an unprocessed copy
     let mut pre_noise = noise.clone();
     let mut synth = resynth::<U2, U2, _>(window_length, |fft| {
-        process(fft, &frequencies, &shared(0.0), &shared(0.0));
+        process(fft, &frequencies, &shared(0.0), &shared(0.25));
     });
     for sample in &mut noise {
         let samples_into_array = &NumericArray::new(arr![*sample; 2]);
@@ -84,7 +84,7 @@ fn gen_chart(vecs: Vec<(Vec<f32>, RGBColor)>, frequencies: &Vec<f32>, _sample_ra
         .caption(":3", ("sans-serif", 40))
         .x_label_area_size(40)
         .y_label_area_size(50)
-        .build_cartesian_2d((5000.0..6000.0).log_scale(), (min_y..max_y).log_scale())
+        .build_cartesian_2d((1_000.0..10_000.0).log_scale(), (min_y..max_y).log_scale())
         .unwrap();
 
     chart

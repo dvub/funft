@@ -77,19 +77,19 @@ pub fn process(
                     }
                 }
 
-                let mut index = 0;
+                let mut nearest_in_key_bin_index = 0;
                 let mut min = f32::MAX;
                 for j in 0..fft.bins() {
                     let diff = (nearest_ikf - fft.frequency(j)).abs();
                     if diff < min {
                         min = diff;
-                        index = j;
+                        nearest_in_key_bin_index = j;
                     }
                 }
 
                 // this subtraction doesn't work - why?
-                // synthesis[k].1 = (synthesis[k].1 + mag * -subtraction_factor.value()).min(0.0);
-                synthesis[index].1 += mag * addition_factor.value();
+                // synthesis[k].1 -= subtraction_factor.value();
+                synthesis[nearest_in_key_bin_index].1 += mag * addition_factor.value();
             }
         }
 
