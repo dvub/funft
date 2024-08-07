@@ -123,8 +123,8 @@ impl Plugin for Gain {
 
             let lasr = self.lasr_shared.value().abs();
             let sasr = self.sasr_shared.value().abs();
-            let dw = (lasr / sasr).clamp(0.0, 1.0);
-            self.dry_wet.set(dw);
+            let dry_wet = (1.0 - ((sasr - lasr) * 3.0)).clamp(0.0, 1.0);
+            self.dry_wet.set(dry_wet);
 
             self.graph.process(
                 block.samples(),

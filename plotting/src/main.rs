@@ -7,7 +7,6 @@ use funft_utils::{generate_frequencies, generate_graph};
 use numeric_array::{generic_array::arr, NumericArray};
 
 use plotters::prelude::*;
-use rand::Rng;
 use realfft::RealFftPlanner;
 use signals::gen_noise;
 use std::{
@@ -25,15 +24,15 @@ fn main() {
 
     let frequencies = generate_frequencies();
 
-    let lasr_shared = shared(0.0);
-    let sasr_shared = shared(0.0);
-    let delta = shared(0.0);
+    let long_follow = shared(0.0);
+    let short_follow = shared(0.0);
+    let dw = shared(0.0);
 
     // this graph will handle all of our audio processing
-    let mut graph = generate_graph(&lasr_shared, &sasr_shared, &delta);
+    let mut graph = generate_graph(&long_follow, &short_follow, &dw);
 
     // vector to hold our processor's transient detection
-    let mut deltas = Vec::new();
+    let mut dry_wets = Vec::new();
     let mut bleh = Vec::new();
     let mut bleh2 = Vec::new();
 
@@ -45,14 +44,14 @@ fn main() {
         graph.tick(samples_into_array, &mut out);
         *sample = out[0];
 
-        let lasr = lasr_shared.value().abs();
-        let sasr = sasr_shared.value().abs();
-        let d = (lasr / sasr).clamp(0.0, 1.0);
-        delta.set(d);
+        let long_follow_value = long_follow.value().abs();
+        let short_follow_value = short_follow.value().abs();
+        let dry_wet = (1.0 - ((short_follow_value - long_follow_value) * 3.0)).clamp(0.0, 1.0);
+        dw.set(dry_wet);
 
-        deltas.push(d);
-        bleh.push(lasr);
-        bleh2.push(sasr);
+        dry_wets.push(dry_wet);
+        bleh.push(long_follow_value);
+        bleh2.push(short_follow_value);
     }
     // now its time to create our fun plots!
     let time = SystemTime::now()
@@ -69,7 +68,7 @@ fn main() {
         &dir.join("time domain.png"),
         vec![
             (pre_noise.clone(), BLUE),
-            (deltas, RED),
+            (dry_wets, RED),
             (bleh, GREEN),
             (bleh2, BLACK),
         ],

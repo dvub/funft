@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{cmp::Ordering, f32::consts::PI};
 
 // TODO:
 // rewrite ALL OF this dogshit code
@@ -68,8 +68,18 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
 
         let mut analysis = vec![(0.0, 0.0); fft.bins()];
         let mut synthesis = vec![(0.0, 0.0); fft.bins()];
+
+        // TODO:
+        // parameterize!
+        let processing_band_min = 100.0;
+        let processing_band_max = 10_000.0;
+
         /* this is the analysis step */
         for k in 0..fft.bins() {
+            if !(processing_band_min..=processing_band_max).contains(&fft.frequency(k)) {
+                continue;
+            }
+
             /* compute magnitude and phase */
             let current = fft.at(channel, k);
             let phase = current.atan().re;
@@ -103,6 +113,10 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
         /* this does the actual pitch shifting */
         let mut vov: Vec<Vec<f32>> = vec![Vec::new(); fft.bins()];
         for k in 0..fft.bins() {
+            if !(processing_band_min..=processing_band_max).contains(&fft.frequency(k)) {
+                continue;
+            }
+
             let freq = analysis[k].0;
             let mag = analysis[k].1;
 
@@ -132,20 +146,36 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
                     }
                 }
 
-                // this subtraction doesn't work - why?
-                synthesis[k].1 += mag * 0.1;
+                let amplitude = (k as f32).log10() * 0.075;
 
+                synthesis[k].1 += mag * amplitude;
                 vov[nearest_in_key_bin_index].push(mag);
             }
         }
         for (i, v) in vov.iter().enumerate() {
+            // TODO:
+            // please rewrite this better.
             let sum = v.iter().sum::<f32>();
             let len = v.len();
             let avg = sum / max(len, 1) as f32;
-            synthesis[i].1 += (avg * 1.25);
+
+            // TODO:
+            // fix this if statement to prevent NaN LOLLL
+            // parameterize this multiplier at the end!
+            // figure out other stuff other than log, maybe parameterize that too!
+            if i > 0 {
+                let amplitude = (i as f32).log10() * 2.0;
+                // println!("{}", amplitude);
+                synthesis[i].1 += avg * amplitude;
+            }
         }
 
         for k in 0..fft.bins() {
+            if !(processing_band_min..=processing_band_max).contains(&fft.frequency(k)) {
+                fft.set(channel, k, fft.at(channel, k));
+                continue;
+            }
+
             /* get magnitude and true frequency from synthesis array */
             let mag = synthesis[k].1;
             let mut freq = synthesis[k].0;
@@ -194,11 +224,14 @@ fn midi_to_freq(x: f32) -> f32 {
     440.0 * 2.0_f32.powf((x - 69.0) / 12.0)
 }
 
+// i kept this here because uh.. idk i might use it later?
 #[allow(dead_code)]
 fn freq_to_midi(f: f32) -> f32 {
     12.0 * (f / 440.0).log2() + 69.0
 }
 
+// TODO:
+// rewrite this
 pub fn generate_frequencies() -> Vec<f32> {
     let max_frequency = 44100.0; // Maximum frequency
 
@@ -215,7 +248,15 @@ pub fn generate_frequencies() -> Vec<f32> {
             let midi_note = base_note + interval;
             let f = midi_to_freq(midi_note as f32);
             if f <= max_frequency {
-                freqs.push(f);
+                // 2 is a good number
+                // this should DEFINITELY BE A PARAMETER
+                let num_harmonics = 2;
+                for h in 0..=num_harmonics {
+                    let harmonic_freq = f * (h + 1) as f32;
+                    if harmonic_freq < max_frequency {
+                        freqs.push(f * h as f32);
+                    }
+                }
             }
         }
         octave += 1;
@@ -223,6 +264,9 @@ pub fn generate_frequencies() -> Vec<f32> {
     }
 
     // Generate frequencies for each note in the scale
+    freqs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    freqs.dedup();
+
     freqs
 }
 
