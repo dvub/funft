@@ -39,7 +39,7 @@ impl Default for Gain {
             shared(0.25), // 5
             shared(0.0),  // 6
             shared(1.0),  // 7
-            shared(0.01), // 8
+            shared(0.0),  // 8
             shared(0.0),  // 9
             shared(1.0),  // 10
             shared(0.0),  // 11

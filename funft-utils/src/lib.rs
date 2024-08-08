@@ -1,11 +1,10 @@
+use fundsp::hacker::*;
 use std::{cmp::Ordering, f32::consts::PI};
+
+const OVERSAMPLE_FACTOR: usize = 4;
 
 // TODO:
 // rewrite ALL OF this dogshit code
-// BECAUSE JESUS FUCK!
-use fundsp::hacker::*;
-
-const OVERSAMPLE_FACTOR: usize = 4;
 
 pub fn generate_graph(
     slow_shared: &Shared,
@@ -225,6 +224,7 @@ pub fn process(fft: &mut FftWindow, intervals: &[Shared]) {
 }
 
 fn is_in_key(in_key_frequencies: &[(f32, f32)], frequency: f32) -> bool {
+    // would there be a way to optimize this?
     let mut result = false;
     for ikf in in_key_frequencies {
         // TODO:
@@ -237,44 +237,51 @@ fn is_in_key(in_key_frequencies: &[(f32, f32)], frequency: f32) -> bool {
     result
 }
 
-fn midi_to_freq(x: f32) -> f32 {
-    440.0 * 2.0_f32.powf((x - 69.0) / 12.0)
-}
-
-// i kept this here because uh.. idk i might use it later?
-#[allow(dead_code)]
-fn freq_to_midi(f: f32) -> f32 {
-    12.0 * (f / 440.0).log2() + 69.0
-}
-
 // TODO:
 // rewrite this
 pub fn generate_frequencies(intervals: &[f32]) -> Vec<(f32, f32)> {
-    let max_frequency = 44100.0; // Maximum frequency
+    // TODO:
+    // turn this into a parameter of the function, being sample rate
+    let sample_rate = 44_100.0;
+    let max_frequency = sample_rate / 2.0; // Maximum frequency
 
+    // convert our incoming array into an array of tuples
     let mut is = Vec::new();
     for (interval, velocity) in intervals.iter().enumerate() {
         is.push((interval, *velocity));
     }
 
     let mut freqs = Vec::new();
+
+    // temporary variables
     let mut octave = 0;
     let mut base_note = 0;
 
-    // Generate notes until the maximum frequency is reached
+    // TODO:
+    // there is definitely some optimizations to be had here
+
+    // also, good LORD please fix the indents
     while midi_to_freq(base_note as f32) <= max_frequency {
         for (interval, velocity) in &is {
             let midi_note = base_note + interval;
             if *velocity > 0.0 {
                 let f = midi_to_freq(midi_note as f32);
                 if f <= max_frequency {
-                    // 2 is a good number
-                    // this should DEFINITELY BE A PARAMETER
+                    // 2 is a good number for harmonics, at least in my opinion
+                    // TODO:
+                    // parameterize!
+
                     let num_harmonics = 2;
-                    for h in 0..=num_harmonics {
-                        let harmonic_freq = f * (h + 1) as f32;
-                        if harmonic_freq < max_frequency {
-                            let tuple = (f * h as f32, *velocity);
+                    // note here that the 0th harmonic is the fundamental frequency
+                    for nth_harmonic in 0..=num_harmonics {
+                        // TODO:
+                        // do something cool here
+                        // let harmonic_weight = 1.0 - (nth_harmonic as f32 / num_harmonics as f32);
+                        let harmonic_weight = 1.0;
+                        let frequency = f * nth_harmonic as f32;
+
+                        if frequency < max_frequency {
+                            let tuple = (frequency, *velocity * harmonic_weight);
                             freqs.push(tuple);
                         }
                     }
@@ -285,11 +292,22 @@ pub fn generate_frequencies(intervals: &[f32]) -> Vec<(f32, f32)> {
         base_note = octave * 12;
     }
 
-    // Generate frequencies for each note in the scale
+    // TODO:
+    // figure out how you want to sort??
     freqs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
     freqs.dedup();
 
     freqs
+}
+
+fn midi_to_freq(x: f32) -> f32 {
+    440.0 * 2.0_f32.powf((x - 69.0) / 12.0)
+}
+
+// i kept this here because uh.. idk i might use it later?
+#[allow(dead_code)]
+fn freq_to_midi(f: f32) -> f32 {
+    12.0 * (f / 440.0).log2() + 69.0
 }
 
 mod tests {
