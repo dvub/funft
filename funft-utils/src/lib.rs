@@ -1,63 +1,21 @@
+pub mod graph;
+
 use fundsp::hacker::*;
 use std::{cmp::Ordering, f32::consts::PI};
 
+// note that this should be a constant because FunDSP's overlap factor is 4 (as of right now)
+// this needs to match the overlap factor
 const OVERSAMPLE_FACTOR: usize = 4;
 
 // TODO:
 // rewrite ALL OF this dogshit code
-
-pub fn generate_graph(
-    slow_shared: &Shared,
-    fast_shared: &Shared,
-    dry_wet: &Shared,
-    intervals: Vec<Shared>,
-) -> Box<dyn AudioUnit> {
-    // The window length, which must be a power of two and at least four,
-    // determines the frequency resolution.
-    // **Latency is equal to the window length.**
-    let window_length = 2048;
-
-    let mixdown = mul(0.5) + mul(0.5);
-
-    // gives us nice dips when transients occur
-
-    // 0.25, 0.03
-    // 0.005, 0.1
-
-    // turning up the first value will overall increase the wetness of the effect
-    // 0.5 is a bit too much for first value
-
-    // second value has a similar effect
-    // 0.5 or 0.6 is probably a good limit
-
-    let slow =
-        mixdown.clone() >> afollow(0.25, 0.015) >> monitor(slow_shared, Meter::Sample) >> sink();
-    // this fast envelope follow should not be tweaked too much, if at all
-    let fast =
-        mixdown.clone() >> afollow(0.005, 0.1) >> monitor(fast_shared, Meter::Sample) >> sink();
-
-    // alternative idea: use a peak meter
-    // mixdown >> monitor(&dry_wet, Meter::Peak(0.4)) >> sink()
-
-    let synth = resynth::<U2, U2, _>(window_length, move |fft| {
-        process(fft, &intervals);
-    });
-
-    let wet = var(dry_wet) | var(dry_wet);
-    let dry = (1.0 - var(dry_wet)) | (1.0 - var(dry_wet));
-
-    let mixed = (wet * synth) & (dry * multipass::<U2>());
-
-    // now that we've described the components, we can put them together
-    let graph = fast ^ slow ^ mixed;
-    Box::new(graph)
-}
+// refactor ALL OF THIS LOL
 
 pub fn process(fft: &mut FftWindow, intervals: &[Shared]) {
+    // extract value from shared interval variables
     let intervals: Vec<_> = intervals.iter().map(|x| x.value()).collect();
+    // generate a list of in-key-frequencies every tick
     let in_key_frequencies = &generate_frequencies(&intervals);
-
-    // println!("{transient}");
 
     let window_length = fft.length();
     let step_size = window_length / OVERSAMPLE_FACTOR;
@@ -159,10 +117,16 @@ pub fn process(fft: &mut FftWindow, intervals: &[Shared]) {
                 }
                 // TODO:
                 // parameterize
-                let amplitude = (k as f32).log10() * 0.075;
-                synthesis[k].1 += mag * amplitude;
 
                 let weight = nearest.1;
+                let inverse_weight = 1.0 - weight;
+
+                // log amplitude:
+                // TODO:
+                // use proper shelf-type filter to boost highs LOL
+                let amp = (k as f32).log10() * 0.075;
+
+                synthesis[k].1 += mag * amp * inverse_weight;
 
                 vov[nearest_in_key_bin_index].0.push(mag);
                 vov[nearest_in_key_bin_index].1 = weight;
@@ -187,10 +151,7 @@ pub fn process(fft: &mut FftWindow, intervals: &[Shared]) {
         }
 
         for k in 0..fft.bins() {
-            if !(processing_band_min..=processing_band_max).contains(&fft.frequency(k)) {
-                fft.set(channel, k, fft.at(channel, k));
-                continue;
-            }
+            let dry_signal = fft.at(channel, k);
 
             /* get magnitude and true frequency from synthesis array */
             let mag = synthesis[k].1;
@@ -209,18 +170,49 @@ pub fn process(fft: &mut FftWindow, intervals: &[Shared]) {
             /* get real and imag part.. */
             let real_component = mag * phase.sin();
             let imaginary_component = mag * phase.cos();
+            let processed_signal = Complex32::new(real_component, imaginary_component);
 
-            let output = Complex32::new(real_component, imaginary_component);
-            let current = fft.frequency(k);
+            let current_freq = fft.frequency(k);
 
-            let band_min = 0.0;
+            let dry_wet_mix = processing_bandpass(10.0, 1_000.0, 100.0, 10_000.0, current_freq);
+            let mixed = dry_wet_mix * processed_signal + (1.0 - dry_wet_mix) * dry_signal;
+
+            let band_min = 20.0;
             let band_max = 44_100.0;
 
-            if (band_min..=band_max).contains(&current) {
-                fft.set(channel, k, output);
+            if (band_min..=band_max).contains(&current_freq) {
+                fft.set(channel, k, mixed);
             }
         }
     }
+}
+// TODO:
+// add testing or make sure this works correctly LOLL
+// https://www.desmos.com/calculator/paoj8fzugk
+
+// takes an input frequency and returns some value between 0 and 1 bnased on if the frequency is in the band
+fn processing_bandpass(
+    hp_width: f32,
+    lp_width: f32,
+    hp_cutoff: f32,
+    lp_cutoff: f32,
+    x: f32,
+) -> f32 {
+    let a = 1.0;
+    if (hp_cutoff > x && x > 0.0) || x > lp_cutoff {
+        return 0.0;
+    }
+    if (lp_cutoff - lp_width) > x && x > (hp_cutoff + hp_width) {
+        return a;
+    }
+    if (hp_cutoff + hp_width) > x && x > hp_cutoff {
+        return (a * (x - hp_cutoff)) / hp_width;
+    }
+    if (lp_cutoff - lp_width) < x && x < lp_cutoff {
+        return -(a * (x - lp_cutoff)) / lp_width;
+    }
+
+    0.0
 }
 
 fn is_in_key(in_key_frequencies: &[(f32, f32)], frequency: f32) -> bool {

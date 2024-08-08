@@ -1,20 +1,37 @@
 use fundsp::hacker::*;
-use funft_utils::generate_graph;
+use funft_utils::graph::generate_graph;
 use nih_plug::prelude::*;
 
 use std::sync::Arc;
 use typenum::{UInt, UTerm};
 
 #[derive(Params)]
+struct GainParams {
+    #[nested(array, group = "Array Parameters")]
+    weights: [NoteWeightParam; 12],
+}
 
-struct GainParams {}
 impl GainParams {
     pub fn new() -> Self {
-        GainParams {}
+        GainParams {
+            weights: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(|index| NoteWeightParam {
+                weight: FloatParam::new(
+                    format!("Note {index} Weight"),
+                    0.0,
+                    FloatRange::Linear { min: 0.0, max: 1.0 },
+                ),
+            }),
+        }
     }
+}
+#[derive(Params)]
+struct NoteWeightParam {
+    #[id = "noope"]
+    weight: FloatParam,
 }
 
 struct Gain {
+    weights: Vec<Shared>,
     sasr_shared: Shared,
     lasr_shared: Shared,
     dry_wet: Shared,
@@ -30,6 +47,7 @@ impl Default for Gain {
         let sasr_shared = shared(0.0);
         let delta = shared(0.0);
         // 0, 2, 3, 5, 7, 10
+
         let weights = vec![
             shared(1.0),  // 0
             shared(0.0),  // 1
@@ -45,12 +63,13 @@ impl Default for Gain {
             shared(0.0),  // 11
         ];
 
-        let graph = generate_graph(&lasr_shared, &sasr_shared, &delta, weights);
+        let graph = generate_graph(&lasr_shared, &sasr_shared, &delta, weights.clone());
 
         Self {
             sasr_shared,
             lasr_shared,
             dry_wet: delta,
+            weights,
 
             graph,
             params: Arc::new(GainParams::new()),
@@ -146,6 +165,11 @@ impl Plugin for Gain {
                 &self.input_buffer.buffer_ref(),
                 &mut self.output_buffer.buffer_mut(),
             );
+
+            for (index, param) in self.params.weights.iter().enumerate() {
+                let value = param.weight.value();
+                self.weights[index].set(value);
+            }
 
             // write from output buffer
             for (index, mut channel_samples) in block.iter_samples().enumerate() {

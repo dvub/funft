@@ -3,7 +3,7 @@ mod signals;
 use plots::{frequency_plot, generic_plot};
 
 use fundsp::hacker::*;
-use funft_utils::{generate_frequencies, generate_graph};
+use funft_utils::{generate_frequencies, graph::generate_graph};
 use numeric_array::{generic_array::arr, NumericArray};
 
 use plotters::prelude::*;
