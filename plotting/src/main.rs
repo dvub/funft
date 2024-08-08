@@ -22,14 +22,14 @@ fn main() {
     // save an unprocessed copy
     let mut pre_noise = noise.clone();
 
-    let frequencies = generate_frequencies();
+    let frequencies = generate_frequencies(&Vec::new());
 
     let long_follow = shared(0.0);
     let short_follow = shared(0.0);
     let dw = shared(0.0);
 
     // this graph will handle all of our audio processing
-    let mut graph = generate_graph(&long_follow, &short_follow, &dw);
+    let mut graph = generate_graph(&long_follow, &short_follow, &dw, Vec::new());
 
     // vector to hold our processor's transient detection
     let mut dry_wets = Vec::new();
@@ -86,10 +86,10 @@ fn main() {
     let noise_fft_mags: Vec<_> = output.iter().map(|s| s.norm()).collect();
     let processed_fft_mags: Vec<_> = output2.iter().map(|s| s.norm()).collect();
 
-    frequency_plot(
+    /*frequency_plot(
         &dir.join("freq domain.png"),
         vec![(noise_fft_mags, BLUE), (processed_fft_mags, RED)],
         &frequencies,
         44100,
-    );
+    );*/
 }

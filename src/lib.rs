@@ -29,8 +29,23 @@ impl Default for Gain {
         let lasr_shared = shared(0.0);
         let sasr_shared = shared(0.0);
         let delta = shared(0.0);
+        // 0, 2, 3, 5, 7, 10
+        let weights = vec![
+            shared(1.0),  // 0
+            shared(0.0),  // 1
+            shared(0.5),  // 2
+            shared(1.0),  // 3
+            shared(0.0),  // 4
+            shared(0.25), // 5
+            shared(0.0),  // 6
+            shared(1.0),  // 7
+            shared(0.01), // 8
+            shared(0.0),  // 9
+            shared(1.0),  // 10
+            shared(0.0),  // 11
+        ];
 
-        let graph = generate_graph(&lasr_shared, &sasr_shared, &delta);
+        let graph = generate_graph(&lasr_shared, &sasr_shared, &delta, weights);
 
         Self {
             sasr_shared,

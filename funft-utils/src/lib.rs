@@ -11,12 +11,12 @@ pub fn generate_graph(
     slow_shared: &Shared,
     fast_shared: &Shared,
     dry_wet: &Shared,
+    intervals: Vec<Shared>,
 ) -> Box<dyn AudioUnit> {
     // The window length, which must be a power of two and at least four,
-    // determines the frequency resolution. Latency is equal to the window length.
+    // determines the frequency resolution.
+    // **Latency is equal to the window length.**
     let window_length = 2048;
-    // hmm...
-    let frequencies = generate_frequencies();
 
     let mixdown = mul(0.5) + mul(0.5);
 
@@ -41,7 +41,7 @@ pub fn generate_graph(
     // mixdown >> monitor(&dry_wet, Meter::Peak(0.4)) >> sink()
 
     let synth = resynth::<U2, U2, _>(window_length, move |fft| {
-        process(fft, &frequencies);
+        process(fft, &intervals);
     });
 
     let wet = var(dry_wet) | var(dry_wet);
@@ -54,7 +54,10 @@ pub fn generate_graph(
     Box::new(graph)
 }
 
-pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
+pub fn process(fft: &mut FftWindow, intervals: &[Shared]) {
+    let intervals: Vec<_> = intervals.iter().map(|x| x.value()).collect();
+    let in_key_frequencies = &generate_frequencies(&intervals);
+
     // println!("{transient}");
 
     let window_length = fft.length();
@@ -73,6 +76,14 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
         // parameterize!
         let processing_band_min = 100.0;
         let processing_band_max = 10_000.0;
+
+        // https://blogs.zynaptiq.com/bernsee/pitch-shifting-using-the-ft/
+
+        // most of this code is translated from this example (c++ to rust)
+        // TODO:
+        // review to ensure no translation mistakes
+
+        // https://blogs.zynaptiq.com/bernsee/repo/smbPitchShift.cpp
 
         /* this is the analysis step */
         for k in 0..fft.bins() {
@@ -111,7 +122,7 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
             analysis[k] = (true_freq, magnitude);
         }
         /* this does the actual pitch shifting */
-        let mut vov: Vec<Vec<f32>> = vec![Vec::new(); fft.bins()];
+        let mut vov: Vec<(Vec<f32>, f32)> = vec![(Vec::new(), 0.0); fft.bins()];
         for k in 0..fft.bins() {
             if !(processing_band_min..=processing_band_max).contains(&fft.frequency(k)) {
                 continue;
@@ -125,34 +136,40 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
             if is_in_key(in_key_frequencies, freq) {
                 synthesis[k].1 += mag;
             } else {
-                let mut nearest_ikf = 0.0;
+                // TODO:
+                // rework this entire stupid algorithm
+                let mut nearest = (0.0, 0.0);
                 let mut min_diff = f32::MAX;
 
                 for ikf in in_key_frequencies {
-                    let new_diff = (freq - *ikf).abs();
+                    let new_diff = (freq - ikf.0).abs();
                     if new_diff < min_diff {
                         min_diff = new_diff;
-                        nearest_ikf = *ikf;
+                        nearest = *ikf;
                     }
                 }
 
                 let mut nearest_in_key_bin_index = 0;
                 let mut min = f32::MAX;
                 for j in 0..fft.bins() {
-                    let diff = (nearest_ikf - fft.frequency(j)).abs();
+                    let diff = (nearest.0 - fft.frequency(j)).abs();
                     if diff < min {
                         min = diff;
                         nearest_in_key_bin_index = j;
                     }
                 }
-
+                // TODO:
+                // parameterize
                 let amplitude = (k as f32).log10() * 0.075;
-
                 synthesis[k].1 += mag * amplitude;
-                vov[nearest_in_key_bin_index].push(mag);
+
+                let weight = nearest.1;
+
+                vov[nearest_in_key_bin_index].0.push(mag);
+                vov[nearest_in_key_bin_index].1 = weight;
             }
         }
-        for (i, v) in vov.iter().enumerate() {
+        for (i, (v, weight)) in vov.iter().enumerate() {
             // TODO:
             // please rewrite this better.
             let sum = v.iter().sum::<f32>();
@@ -164,7 +181,7 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
             // parameterize this multiplier at the end!
             // figure out other stuff other than log, maybe parameterize that too!
             if i > 0 {
-                let amplitude = (i as f32).log10() * 2.0;
+                let amplitude = (i as f32).log10() * 2.0 * weight;
                 // println!("{}", amplitude);
                 synthesis[i].1 += avg * amplitude;
             }
@@ -207,12 +224,12 @@ pub fn process(fft: &mut FftWindow, in_key_frequencies: &[f32]) {
     }
 }
 
-fn is_in_key(in_key_frequencies: &[f32], frequency: f32) -> bool {
+fn is_in_key(in_key_frequencies: &[(f32, f32)], frequency: f32) -> bool {
     let mut result = false;
     for ikf in in_key_frequencies {
         // TODO:
         // tweak this tolerance!
-        if (frequency - *ikf).abs() <= 25.0 {
+        if (frequency - ikf.0).abs() <= 25.0 {
             result = true;
             break;
         }
@@ -232,11 +249,13 @@ fn freq_to_midi(f: f32) -> f32 {
 
 // TODO:
 // rewrite this
-pub fn generate_frequencies() -> Vec<f32> {
+pub fn generate_frequencies(intervals: &[f32]) -> Vec<(f32, f32)> {
     let max_frequency = 44100.0; // Maximum frequency
 
-    // C Major scale intervals (C, D, E, F, G, A, B, )
-    let scale_intervals = vec![0, 2, 3, 5, 7, 10];
+    let mut is = Vec::new();
+    for (interval, velocity) in intervals.iter().enumerate() {
+        is.push((interval, *velocity));
+    }
 
     let mut freqs = Vec::new();
     let mut octave = 0;
@@ -244,17 +263,20 @@ pub fn generate_frequencies() -> Vec<f32> {
 
     // Generate notes until the maximum frequency is reached
     while midi_to_freq(base_note as f32) <= max_frequency {
-        for interval in &scale_intervals {
+        for (interval, velocity) in &is {
             let midi_note = base_note + interval;
-            let f = midi_to_freq(midi_note as f32);
-            if f <= max_frequency {
-                // 2 is a good number
-                // this should DEFINITELY BE A PARAMETER
-                let num_harmonics = 2;
-                for h in 0..=num_harmonics {
-                    let harmonic_freq = f * (h + 1) as f32;
-                    if harmonic_freq < max_frequency {
-                        freqs.push(f * h as f32);
+            if *velocity > 0.0 {
+                let f = midi_to_freq(midi_note as f32);
+                if f <= max_frequency {
+                    // 2 is a good number
+                    // this should DEFINITELY BE A PARAMETER
+                    let num_harmonics = 2;
+                    for h in 0..=num_harmonics {
+                        let harmonic_freq = f * (h + 1) as f32;
+                        if harmonic_freq < max_frequency {
+                            let tuple = (f * h as f32, *velocity);
+                            freqs.push(tuple);
+                        }
                     }
                 }
             }
@@ -277,10 +299,5 @@ mod tests {
         use super::{freq_to_midi, midi_to_freq};
         assert_eq!(midi_to_freq(69.0), 440.0);
         assert_eq!(freq_to_midi(440.0), 69.0);
-    }
-    #[test]
-    fn test_generate_frequencies() {
-        use super::generate_frequencies;
-        println!("{:?}", generate_frequencies());
     }
 }
