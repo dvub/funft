@@ -29,7 +29,7 @@ fn main() {
     let dw = shared(0.0);
 
     // this graph will handle all of our audio processing
-    let mut graph = generate_graph(&long_follow, &short_follow, &dw, Vec::new());
+    let mut graph = generate_graph(&long_follow, &short_follow, &dw, todo!());
 
     // vector to hold our processor's transient detection
     let mut dry_wets = Vec::new();

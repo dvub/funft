@@ -6,13 +6,13 @@ pub fn generate_graph(
     slow_shared: &Shared,
     fast_shared: &Shared,
     dry_wet: &Shared,
-    intervals: Vec<Shared>,
+    intervals: [Shared; 12],
 ) -> Box<dyn AudioUnit> {
     // The window length, which must be a power of two and at least four,
     // determines the frequency resolution.
     // **Latency is equal to the window length.**
-    let window_length = 2048;
 
+    let window_length = 2048;
     let mixdown = mul(0.5) + mul(0.5);
 
     // gives us nice dips when transients occur

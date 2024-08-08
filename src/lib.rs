@@ -7,23 +7,48 @@ use typenum::{UInt, UTerm};
 
 #[derive(Params)]
 struct GainParams {
+    // TODO:
+    // change group name
     #[nested(array, group = "Array Parameters")]
-    weights: [NoteWeightParam; 12],
+    note_weights: [NoteWeightParam; 12],
 }
 
 impl GainParams {
     pub fn new() -> Self {
         GainParams {
-            weights: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(|index| NoteWeightParam {
+            note_weights: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(|index| NoteWeightParam {
                 weight: FloatParam::new(
-                    format!("Note {index} Weight"),
+                    format!("{} Weight", num_to_note(index)),
                     0.0,
                     FloatRange::Linear { min: 0.0, max: 1.0 },
-                ),
+                )
+                // percentage formatter
+                .with_value_to_string(Arc::new(|value: f32| format!("{:.2}%", value * 100.0))),
             }),
         }
     }
 }
+
+fn num_to_note(x: usize) -> String {
+    let str = match x {
+        0 => "C",
+        1 => "C#/Db",
+        2 => "D",
+        3 => "Eb/D#",
+        4 => "E",
+        5 => "F",
+        6 => "F#/Gb",
+        7 => "G",
+        8 => "Ab/G#",
+        9 => "A",
+        10 => "Bb/A#",
+        11 => "B",
+        // LOL ... should i do something else like panic here??
+        12.. => "That's not right...",
+    };
+    str.to_string()
+}
+
 #[derive(Params)]
 struct NoteWeightParam {
     #[id = "noope"]
@@ -31,7 +56,7 @@ struct NoteWeightParam {
 }
 
 struct Gain {
-    weights: Vec<Shared>,
+    weights: [Shared; 12],
     sasr_shared: Shared,
     lasr_shared: Shared,
     dry_wet: Shared,
@@ -48,21 +73,20 @@ impl Default for Gain {
         let delta = shared(0.0);
         // 0, 2, 3, 5, 7, 10
 
-        let weights = vec![
-            shared(1.0),  // 0
-            shared(0.0),  // 1
-            shared(0.5),  // 2
-            shared(1.0),  // 3
-            shared(0.0),  // 4
-            shared(0.25), // 5
-            shared(0.0),  // 6
-            shared(1.0),  // 7
-            shared(0.0),  // 8
-            shared(0.0),  // 9
-            shared(1.0),  // 10
-            shared(0.0),  // 11
+        let weights = [
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
+            shared(0.0),
         ];
-
         let graph = generate_graph(&lasr_shared, &sasr_shared, &delta, weights.clone());
 
         Self {
@@ -70,7 +94,6 @@ impl Default for Gain {
             lasr_shared,
             dry_wet: delta,
             weights,
-
             graph,
             params: Arc::new(GainParams::new()),
 
@@ -166,7 +189,7 @@ impl Plugin for Gain {
                 &mut self.output_buffer.buffer_mut(),
             );
 
-            for (index, param) in self.params.weights.iter().enumerate() {
+            for (index, param) in self.params.note_weights.iter().enumerate() {
                 let value = param.weight.value();
                 self.weights[index].set(value);
             }

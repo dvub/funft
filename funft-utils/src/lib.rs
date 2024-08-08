@@ -11,7 +11,7 @@ const OVERSAMPLE_FACTOR: usize = 4;
 // rewrite ALL OF this dogshit code
 // refactor ALL OF THIS LOL
 
-pub fn process(fft: &mut FftWindow, intervals: &[Shared]) {
+pub fn process(fft: &mut FftWindow, intervals: &[Shared; 12]) {
     // extract value from shared interval variables
     let intervals: Vec<_> = intervals.iter().map(|x| x.value()).collect();
     // generate a list of in-key-frequencies every tick
